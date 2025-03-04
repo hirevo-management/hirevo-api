@@ -1,6 +1,7 @@
 package main
 
 import (
+	"hirevo/internal/reports"
 	"log"
 	"os"
 
@@ -18,6 +19,7 @@ func main() {
 	openDatabaseConnection(app)
 	company.RegisterHooks(app)
 	invoice.RegisterHooks(app)
+	reports.RegisterHooks(app)
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
