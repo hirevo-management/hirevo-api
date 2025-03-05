@@ -1,6 +1,7 @@
 package pdfgeneratorservice
 
 import (
+	"hirevo/internal/handlers"
 	"strings"
 
 	"github.com/johnfercher/maroto/v2"
@@ -30,6 +31,7 @@ func GeneratePDFBytes(info PDFData) ([]byte, error) {
 	m, err := generatePDF(info)
 	document, err := m.Generate()
 	if err != nil {
+		handlers.LogError(err, "Failed Maroto generate PDF")
 		return nil, err
 	}
 
@@ -49,9 +51,11 @@ func generatePDF(data PDFData) (core.Maroto, error) {
 	m := maroto.NewMetricsDecorator(mrt)
 
 	if err := m.RegisterHeader(getPageHeader(data.HeaderImage, data.Header)); err != nil {
+		handlers.LogError(err, "Failed RegisterHeader generate PDF")
 		return nil, err
 	}
 	if err := m.RegisterFooter(getPageFooter(data.Footer)); err != nil {
+		handlers.LogError(err, "Failed RegisterFooter generate PDF")
 		return nil, err
 	}
 

@@ -1,10 +1,12 @@
 package reports
 
 import (
+	"hirevo/internal/handlers"
+	"time"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"time"
 )
 
 // RegisterHooks update company and user reports
@@ -40,7 +42,7 @@ func updateCompanyReportOnInvoiceChange(app *pocketbase.PocketBase) {
 	})
 }
 
-// Job memners observer (create/update) -> user_reports
+// Job members observer (create/update) -> user_reports
 func updateUserReportOnJobMemberChange(app *pocketbase.PocketBase) {
 	app.OnRecordAfterCreateSuccess("job_members").BindFunc(func(e *core.RecordEvent) error {
 		userID := e.Record.GetString("userID")
@@ -56,7 +58,8 @@ func updateUserReportOnJobMemberChange(app *pocketbase.PocketBase) {
 func updateCompanyReport(app *pocketbase.PocketBase, companyID string) error {
 	collection, err := app.FindCollectionByNameOrId("company_reports")
 	if err != nil {
-		return err
+		handlers.LogError(err, "Failed to find company_reports collection -> CompanyID received", "companyID", companyID)
+		return handlers.InternalServerError("Failed to find company_reports collection -> CompanyID received", err, "companyID", companyID)
 	}
 
 	// Fetch or create company report
@@ -64,6 +67,7 @@ func updateCompanyReport(app *pocketbase.PocketBase, companyID string) error {
 		"companyID": companyID,
 	})
 	if err != nil {
+		handlers.LogInfo("No existing company report found, creating new", "companyID", companyID)
 		report = core.NewRecord(collection)
 		report.Set("companyID", companyID)
 	}
@@ -99,7 +103,8 @@ func updateCompanyReport(app *pocketbase.PocketBase, companyID string) error {
 		"companyID": companyID,
 	})
 	if err != nil {
-		return err
+		handlers.LogError(err, "Failed to fetch company invoices report", "companyID", companyID)
+		return handlers.InternalServerError("Failed to fetch company invoices report", err, "companyID", companyID)
 	}
 	totalInvoices := len(invoices)
 	paidInvoices := 0
@@ -123,13 +128,20 @@ func updateCompanyReport(app *pocketbase.PocketBase, companyID string) error {
 	report.Set("paidInvoices", paidInvoices)
 	report.Set("totalRevenue", totalRevenue)
 
-	return app.SaveNoValidate(report)
+	if err := app.SaveNoValidate(report); err != nil {
+		handlers.LogError(err, "Failed to save company report", "companyID", companyID)
+		return handlers.InternalServerError("Failed to save company report", err, "companyID", companyID)
+	}
+
+	handlers.LogInfo("Company report updated successfully", "companyID", companyID, "totalJobs", totalJobs, "activeJobs", activeJobs, "completedJobs", completedJobs, "totalWorkers", totalWorkers, "totalInvoices", totalInvoices, "paidInvoices", paidInvoices, "totalRevenue", totalRevenue)
+	return nil
 }
 
 func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 	collection, err := app.FindCollectionByNameOrId("user_reports")
 	if err != nil {
-		return err
+		handlers.LogError(err, "Failed to find user_reports collection", "collection", "user_reports")
+		return handlers.InternalServerError("Failed to find user_reports collection", err, "user_reports", "user_reports")
 	}
 
 	// Fetch or create user reports
@@ -137,6 +149,7 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 		"userID": userID,
 	})
 	if err != nil {
+		handlers.LogInfo("No existing user report found, creating new", "userID", userID)
 		report = core.NewRecord(collection)
 		report.Set("userID", userID)
 	}
@@ -146,7 +159,8 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 		"userID": userID,
 	})
 	if err != nil {
-		return err
+		handlers.LogError(err, "Failed to fetch job_members", "userID", userID)
+		return handlers.InternalServerError("Failed to fetch job_members during generate reports", err, "userID", userID)
 	}
 	totalJobs := len(jobMembers)
 	hiredJobs := 0
@@ -158,10 +172,12 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 			jobID := jm.GetString("jobID")
 			job, err := app.FindRecordById("jobs", jobID)
 			if err != nil {
+				handlers.LogWarn("Job not found for job_member", "jobID", jobID)
 				continue
 			}
 			rateIds, ok := job.Get("rates").([]interface{})
 			if !ok || len(rateIds) == 0 {
+				handlers.LogWarn("No rates found for job", "jobID", jobID)
 				continue
 			}
 			// Convert IDs -> strings
@@ -178,6 +194,7 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 				"rateIds": rateIdStrings,
 			})
 			if err != nil {
+				handlers.LogError(err, "Failed to fetch job rates", "jobID", jobID)
 				continue
 			}
 			for _, rate := range rates {
@@ -186,10 +203,12 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 				endStr := rate.GetString("endTime")
 				start, err := time.Parse(time.RFC3339, startStr)
 				if err != nil {
+					handlers.LogWarn("Invalid startTime format", "startTime", startStr)
 					continue
 				}
 				end, err := time.Parse(time.RFC3339, endStr)
 				if err != nil {
+					handlers.LogWarn("Invalid endTime format", "endTime", endStr)
 					continue
 				}
 				hours := end.Sub(start).Hours()
@@ -203,7 +222,8 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 		"userID": userID,
 	})
 	if err != nil {
-		return err
+		handlers.LogError(err, "Failed to fetch company_members", "userID", userID)
+		return handlers.InternalServerError("Failed to fetch company_members during generate reports", err, "userID", userID)
 	}
 	activeCompanies := len(companies)
 
@@ -214,5 +234,10 @@ func updateUserReport(app *pocketbase.PocketBase, userID string) error {
 	report.Set("totalEarnings", totalEarnings)
 	report.Set("activeCompanies", activeCompanies)
 
-	return app.SaveNoValidate(report)
+	if err := app.SaveNoValidate(report); err != nil {
+		handlers.LogError(err, "Failed while saving user report", "userID", userID)
+		return handlers.InternalServerError("Failed while saving user report", err, "userID", userID)
+	}
+	handlers.LogInfo("User report updated successfully", "userID", userID, "totalJobs", totalJobs, "hiredJobs", hiredJobs, "totalHours", totalHours, "totalEarnings", totalEarnings)
+	return nil
 }
